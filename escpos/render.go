@@ -30,7 +30,20 @@ func Render(doc Document, p Profile) ([]byte, error) {
 			b.Align(AlignLeft).Rule(p.Columns)
 
 		case Row:
-			b.Align(AlignLeft).Line(e.layout(p.Columns))
+			b.Align(AlignLeft)
+			if e.Bold {
+				b.Bold(true)
+			}
+			if e.Underline {
+				b.Underline(true)
+			}
+			b.Line(e.layout(p.Columns))
+			if e.Underline {
+				b.Underline(false)
+			}
+			if e.Bold {
+				b.Bold(false)
+			}
 
 		case Feed:
 			b.Feed(e.Lines)
@@ -127,22 +140,32 @@ func RenderText(doc Document, p Profile) string {
 	p = p.normalize()
 
 	var out strings.Builder
-	writeLine := func(text string, align Alignment) {
-		out.WriteString(fitCell(text, p.Columns, align))
+
+	// Emphasis markers are annotations, so they are not counted against the
+	// roll width. Fitting the decorated string to Columns would truncate the
+	// end of an emphasised line that fits perfectly well on paper — a preview
+	// that hides the total is worse than no preview.
+	writeLine := func(text string, align Alignment, allowance int) {
+		out.WriteString(fitCell(text, p.Columns+allowance, align))
 		out.WriteByte('\n')
+	}
+
+	emphasise := func(value string, bold, underline bool) (string, int) {
+		allowance := 0
+		if bold {
+			value, allowance = "**"+value+"**", allowance+4
+		}
+		if underline {
+			value, allowance = "_"+value+"_", allowance+2
+		}
+		return value, allowance
 	}
 
 	for _, element := range doc {
 		switch e := element.(type) {
 		case Text:
-			value := e.Value
-			if e.Bold {
-				value = "**" + value + "**"
-			}
-			if e.Underline {
-				value = "_" + value + "_"
-			}
-			writeLine(value, e.Align)
+			value, allowance := emphasise(e.Value, e.Bold, e.Underline)
+			writeLine(value, e.Align, allowance)
 
 		case Rule:
 			char := e.Char
@@ -153,7 +176,8 @@ func RenderText(doc Document, p Profile) string {
 			out.WriteByte('\n')
 
 		case Row:
-			out.WriteString(strings.TrimRight(e.layout(p.Columns), " "))
+			value, _ := emphasise(strings.TrimRight(e.layout(p.Columns), " "), e.Bold, e.Underline)
+			out.WriteString(value)
 			out.WriteByte('\n')
 
 		case Feed:
@@ -177,7 +201,7 @@ func RenderText(doc Document, p Profile) string {
 			}
 			out.WriteString(strings.Repeat("=", p.Columns))
 			out.WriteByte('\n')
-			writeLine("["+kind+"]", AlignCenter)
+			writeLine("["+kind+"]", AlignCenter, 0)
 		}
 	}
 

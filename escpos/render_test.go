@@ -191,13 +191,59 @@ func TestRenderTextIsReadable(t *testing.T) {
 }
 
 func TestRenderTextRespectsProfileWidth(t *testing.T) {
+	strip := strings.NewReplacer("**", "", "_", "")
+
 	for _, p := range []Profile{Profile58mm, Profile80mm} {
 		out := RenderText(sampleDoc(), p)
 		for _, line := range strings.Split(strings.TrimRight(out, "\n"), "\n") {
-			if len(line) > p.Columns {
-				t.Errorf("%s: line exceeds %d columns (%d): %q", p.Name, p.Columns, len(line), line)
+			// Emphasis and symbol markers are annotations, not printed content.
+			if strings.HasPrefix(strings.TrimSpace(line), "[") {
+				continue
+			}
+			if width := len(strip.Replace(line)); width > p.Columns {
+				t.Errorf("%s: line exceeds %d columns (%d): %q", p.Name, p.Columns, width, line)
 			}
 		}
+	}
+}
+
+// A line that exactly fills the roll must not lose its end to the emphasis
+// markers — that would hide the total, which is the one figure anyone checks.
+func TestRenderTextDoesNotTruncateEmphasisedFullWidthLines(t *testing.T) {
+	full := strings.Repeat("X", Profile58mm.Columns)
+
+	got := RenderText(Document{Text{Value: full, Bold: true}}, Profile58mm)
+
+	if !strings.Contains(got, "**"+full+"**") {
+		t.Fatalf("a full-width bold line was truncated:\n%s", got)
+	}
+}
+
+// A totals row needs both the column alignment of a Row and the emphasis of a
+// Text. Without Bold on Row, a style would have to preformat the line and
+// hardcode the paper width back in.
+func TestRowEmphasisAppliesToTheWholeLine(t *testing.T) {
+	row := LeftRight("TOTAL", "13.65")
+	row.Bold = true
+
+	got, err := Render(Document{row}, Profile58mm)
+	if err != nil {
+		t.Fatalf("render: %v", err)
+	}
+
+	boldOn := bytes.Index(got, []byte{0x1b, 0x45, 0x01})
+	total := bytes.Index(got, []byte("TOTAL"))
+	boldOff := bytes.Index(got, []byte{0x1b, 0x45, 0x00})
+
+	if boldOn < 0 || boldOn > total {
+		t.Fatal("bold was not turned on before the row")
+	}
+	if boldOff < total {
+		t.Fatal("bold was turned off before the row finished")
+	}
+
+	if text := RenderText(Document{row}, Profile58mm); !strings.Contains(text, "**TOTAL") {
+		t.Fatalf("readable output does not mark the row as bold: %q", text)
 	}
 }
 

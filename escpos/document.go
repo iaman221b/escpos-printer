@@ -95,6 +95,13 @@ type Cell struct {
 // knowing which it is printing on.
 type Row struct {
 	Cells []Cell
+
+	// Bold and Underline emphasise the whole line. A totals row is the usual
+	// reason: it needs the column alignment a Row gives and the emphasis a
+	// Text gives, and without these it would have to be built as a preformatted
+	// string — which would hardcode the paper width back into the style.
+	Bold      bool
+	Underline bool
 }
 
 // LeftRight is the two-column row that makes up most of a receipt's totals
