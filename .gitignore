@@ -1,0 +1,8 @@
+# Build output
+/bin/
+*.exe
+*.test
+
+# Local scratch
+*.local
+.DS_Store
