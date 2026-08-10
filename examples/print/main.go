@@ -50,7 +50,20 @@ func main() {
 		fmt.Printf("online=%v paper=%s\n", st.Online, st.Paper)
 	}
 
-	if err := p.Print(ctx, sampleReceipt()); err != nil {
+	profile := escpos.Profile58mm
+	doc := sampleReceipt()
+
+	// The same document, readable — this is what a golden test would assert on.
+	fmt.Printf("\n%s\n", escpos.RenderText(doc, profile))
+
+	data, err := escpos.Render(doc, profile)
+	if err != nil {
+		// Bytes are still returned; the error names what was dropped. A receipt
+		// missing its barcode is better than a sale that failed to print.
+		fmt.Fprintf(os.Stderr, "some elements were dropped: %v\n", err)
+	}
+
+	if err := p.Print(ctx, data); err != nil {
 		switch {
 		case errors.Is(err, escposprinter.ErrPaperOut):
 			fmt.Fprintln(os.Stderr, "out of paper")
@@ -67,25 +80,9 @@ func main() {
 	fmt.Println("printed")
 }
 
-// sampleReceipt shows the Builder in use. The layout is the application's
+// sampleReceipt shows the document model. The layout is the application's
 // business decision — the library has no opinion about what a receipt contains.
-func sampleReceipt() []byte {
-	const width = escpos.Width58mm
-
-	b := escpos.NewBuilder()
-
-	// The drawer kick leads the stream so the drawer opens at the earliest
-	// possible instant, in the same job as the receipt.
-	b.DrawerKick(escpos.DefaultPulse())
-
-	b.Init().
-		Align(escpos.AlignCenter).
-		Bold(true).Line("THE CORNER SHOP").Bold(false).
-		Line("Order #1043").
-		Line(time.Now().Format("02 Jan 2026 15:04")).
-		Rule(width).
-		Align(escpos.AlignLeft)
-
+func sampleReceipt() escpos.Document {
 	items := []struct {
 		name  string
 		qty   int
@@ -95,21 +92,35 @@ func sampleReceipt() []byte {
 		{"Almond croissant", 1, 3.80},
 		{"Sparkling water", 1, 2.20},
 	}
-	for _, it := range items {
-		b.Line(fmt.Sprintf("%-20s x%-3d %6.2f", it.name, it.qty, it.total))
+
+	doc := escpos.Document{
+		escpos.Text{Value: "THE CORNER SHOP", Bold: true, Align: escpos.AlignCenter},
+		escpos.Text{Value: "Order #ORD-1043", Align: escpos.AlignCenter},
+		escpos.Text{Value: time.Now().Format("02 Jan 2006 15:04"), Align: escpos.AlignCenter},
+		escpos.Rule{},
 	}
 
-	b.Rule(width).
-		Line(fmt.Sprintf("%-24s %7.2f", "Subtotal", 13.00)).
-		Line(fmt.Sprintf("%-24s %7.2f", "Tax", 0.65)).
-		Bold(true).Line(fmt.Sprintf("%-24s %7.2f", "TOTAL", 13.65)).Bold(false).
-		Line("Paid via: Card").
-		Feed(1).
-		Align(escpos.AlignCenter).
-		Line("Thank you!")
+	for _, it := range items {
+		doc = append(doc, escpos.Row{Cells: []escpos.Cell{
+			{Text: it.name},
+			{Text: fmt.Sprintf("x%d", it.qty), Width: 4, Align: escpos.AlignRight},
+			{Text: fmt.Sprintf("%.2f", it.total), Width: 7, Align: escpos.AlignRight},
+		}})
+	}
 
-	// Cut feeds the printed area past the cutter first — see escpos.DefaultCutFeed.
-	b.Cut()
-
-	return b.Bytes()
+	return append(doc,
+		escpos.Rule{},
+		escpos.LeftRight("Subtotal", "13.00"),
+		escpos.LeftRight("Tax", "0.65"),
+		escpos.Text{Value: fmt.Sprintf("%-24s %7.2f", "TOTAL", 13.65), Bold: true},
+		escpos.Text{Value: "Paid via: Card"},
+		escpos.Feed{Lines: 1},
+		escpos.Text{Value: "Thank you!", Align: escpos.AlignCenter},
+		escpos.Feed{Lines: 1},
+		// Firmware-rendered: the printer encodes both of these itself.
+		escpos.Barcode{Data: "ORD-1043", Align: escpos.AlignCenter},
+		escpos.Feed{Lines: 1},
+		escpos.QR{Data: "https://example.com/orders/ORD-1043", Align: escpos.AlignCenter},
+		escpos.Cut{},
+	)
 }

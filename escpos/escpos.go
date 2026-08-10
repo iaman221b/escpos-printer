@@ -71,10 +71,27 @@ const (
 // A Builder is not safe for concurrent use.
 type Builder struct {
 	buf bytes.Buffer
+	err error
 }
 
 // NewBuilder returns an empty Builder.
 func NewBuilder() *Builder { return &Builder{} }
+
+// Err reports the first error recorded while building, or nil.
+//
+// The methods chain, so they cannot return errors individually. Instead the
+// first failure is remembered and everything after it still runs — a bad
+// barcode payload costs you the barcode, not the receipt. Check this once
+// before dispatching if you care.
+func (b *Builder) Err() error { return b.err }
+
+// fail records the first error and emits nothing for the failed element.
+func (b *Builder) fail(err error) *Builder {
+	if b.err == nil {
+		b.err = err
+	}
+	return b
+}
 
 // Init emits the printer reset sequence. Start every job with it: it clears
 // whatever style state a previous job left behind.
@@ -106,6 +123,24 @@ func (b *Builder) Align(a Alignment) *Builder {
 	default:
 		return b.write(escAlignLft)
 	}
+}
+
+// Size scales characters. Width and Height are multipliers from 1 to 8; values
+// outside that range are clamped. Size(1, 1) restores the default.
+func (b *Builder) Size(width, height uint8) *Builder {
+	clamp := func(v uint8) uint8 {
+		if v < 1 {
+			return 1
+		}
+		if v > 8 {
+			return 8
+		}
+		return v
+	}
+	// GS ! n — the high nibble is the width multiplier, the low nibble the
+	// height, each stored one less than the factor.
+	n := (clamp(width)-1)<<4 | (clamp(height) - 1)
+	return b.writeBytes([]byte{0x1d, 0x21, n})
 }
 
 // Text writes characters with no trailing line feed.
@@ -174,9 +209,10 @@ func (b *Builder) Bytes() []byte {
 // Len reports how many bytes have been accumulated.
 func (b *Builder) Len() int { return b.buf.Len() }
 
-// Reset empties the Builder for reuse.
+// Reset empties the Builder for reuse, clearing any recorded error.
 func (b *Builder) Reset() *Builder {
 	b.buf.Reset()
+	b.err = nil
 	return b
 }
 

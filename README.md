@@ -51,27 +51,96 @@ can observe and nothing more.
 
 ## Building receipts
 
-The `escpos` package produces bytes and never opens a connection, so one rendered stream prints
-identically through any transport on any platform.
+Describe the receipt as a **document** — a slice of elements — and render it for a **profile**.
+A receipt style is then just a function from your data to a `Document`, so adding a kitchen ticket
+or a gift receipt is adding a function, not extending this library.
 
 ```go
-b := escpos.NewBuilder()
-b.DrawerKick(escpos.DefaultPulse())          // opens with the receipt, same job
-b.Init().
-    Align(escpos.AlignCenter).
-    Bold(true).Line("THE CORNER SHOP").Bold(false).
-    Rule(escpos.Width58mm).
-    Align(escpos.AlignLeft).
-    Line("Flat white          x2    7.00").
-    Cut()
+func StandardReceipt(order Order) escpos.Document {
+    doc := escpos.Document{
+        escpos.Text{Value: order.Store, Bold: true, Align: escpos.AlignCenter},
+        escpos.Text{Value: "Order #" + order.Number, Align: escpos.AlignCenter},
+        escpos.Rule{},
+    }
+    for _, item := range order.Items {
+        doc = append(doc, escpos.Row{Cells: []escpos.Cell{
+            {Text: item.Name},                                        // flexible
+            {Text: item.Qty,   Width: 4, Align: escpos.AlignRight},
+            {Text: item.Total, Width: 7, Align: escpos.AlignRight},
+        }})
+    }
+    return append(doc,
+        escpos.Rule{},
+        escpos.LeftRight("TOTAL", order.Total),
+        escpos.QR{Data: "https://example.com/orders/" + order.Number, Align: escpos.AlignCenter},
+        escpos.Cut{},
+    )
+}
 
-p.Print(ctx, b.Bytes())
+data, err := escpos.Render(StandardReceipt(order), escpos.Profile58mm)
+p.Print(ctx, data)
 ```
 
-`Cut()` feeds the paper clear of the cutter before cutting. This is not cosmetic: the print head
-sits ~15 mm above the blade, so cutting without feeding first slices through blank leader and
-leaves the printed text stranded inside the printer — the slip that falls out is blank. The API
-does it for you so you cannot get it wrong. Use `CutAfter(n)` if your printer's gap differs.
+**`Row` is what makes a style paper-size independent.** Cells with `Width: 0` share whatever the
+fixed columns leave, so the same document lays out correctly at 32 and 48 characters without the
+style knowing which roll it is printing on.
+
+**Layouts are testable as text.** The same document renders to something a golden file can diff:
+
+```go
+fmt.Println(escpos.RenderText(StandardReceipt(order), escpos.Profile58mm))
+```
+```
+        **THE CORNER SHOP**
+          Order #ORD-1043
+--------------------------------
+Flat white               x2  7.00
+--------------------------------
+TOTAL                       7.00
+   [QR: https://example.com/...]
+================================
+             [CUT]
+```
+
+`Render` always returns bytes, even when an element fails — an invalid barcode payload costs you
+the barcode, not the receipt. The error tells you what was dropped; log it rather than failing a
+sale over it.
+
+### Profiles
+
+`Profile58mm` (32 columns, 384 dots) and `Profile80mm` (48 columns, 576 dots) are provided; build
+your own for anything else. The profile also carries `CutFeed` and a `Capabilities` set — an
+element the printer cannot draw is skipped and reported, never sent as a command it would render
+as garbage.
+
+### QR codes and barcodes
+
+Both are drawn by the printer's **firmware** — the host sends the data and the printer encodes the
+symbol. There is no client-side encoding, and no image to dither.
+
+```go
+escpos.QR{Data: "https://example.com"}                       // Model 2, module 6, correction M
+escpos.Barcode{Data: "ORD-1043"}                             // Code128, HRI below
+escpos.Barcode{Data: "1234567890128", Format: escpos.EAN13}
+```
+
+Code128 payloads are given a `{B` code-set prefix automatically — without one, Epson firmware
+prints nothing at all, which is the most common way hand-rolled Code128 fails. Data a symbology
+cannot represent is rejected with an error rather than printed as a symbol that scans to the wrong
+value.
+
+### Cutting
+
+`Cut{}` feeds the paper clear of the cutter before cutting, using the profile's `CutFeed`. This is
+not cosmetic: the print head sits ~15 mm above the blade, so cutting without feeding first slices
+through blank leader and leaves the printed text stranded inside the printer — the slip that falls
+out is blank. The API does it for you so you cannot get it wrong.
+
+### The low-level Builder
+
+`escpos.Builder` is still there as the escape hatch — chainable, imperative, and what `Render` uses
+underneath, so there is one place in the library that emits bytes. Reach for it when you need a
+command the document model does not cover; `Raw([]byte)` takes anything.
 
 ## Remembering the operator's choice
 
