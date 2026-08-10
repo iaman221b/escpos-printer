@@ -24,3 +24,31 @@ func platformFinders(logger *slog.Logger) []device.Finder {
 		&windows.Finder{Logger: logger},
 	}
 }
+
+// configuredLocalDevice resolves an explicitly configured local queue.
+//
+// This is the path a working Windows till takes: mode "windows" plus the queue
+// name produces the very same spooler backend, under the very same device ID
+// the Windows finder would produce for that queue, so the two agree and the
+// configured printer is pinned active.
+//
+// A mode belonging to another platform is ignored rather than treated as an
+// error, so one shared configuration can serve a mixed fleet.
+func configuredLocalDevice(mode, name string) (device.Discovered, bool) {
+	if mode != "windows" && mode != "spooler" {
+		return device.Discovered{}, false
+	}
+
+	return device.Discovered{
+		Device: device.Device{
+			ID:         device.QueueDeviceID("windows", name),
+			Name:       name,
+			Connection: device.ConnectionUSB,
+			Transport:  "windows-spooler",
+			// Named by an operator, so treated as intended for receipts.
+			Receipt: true,
+			Detail:  "Named in the application's configuration",
+		},
+		Backend: windows.NewSpoolerBackend(name),
+	}, true
+}
