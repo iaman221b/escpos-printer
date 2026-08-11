@@ -1,9 +1,3 @@
-// Package network reaches printers that have their own address, over a raw TCP
-// socket on the ESC/POS port.
-//
-// Sockets are sockets: this package carries no build tag and uses nothing
-// platform specific, so the same code finds and prints to LAN printers on
-// Windows, Linux and macOS alike.
 package network
 
 import (

@@ -7,6 +7,10 @@ import "github.com/iaman221b/escpos-printer/device"
 // top-level package never has to import device to handle an error.
 //
 //	if errors.Is(err, escposprinter.ErrPaperOut) { ... }
+//
+// Branching on these rather than on message text is the point: message matching
+// works only while one team owns both sides of a call, and breaks the first time
+// a message is reworded or a platform reports the same condition differently.
 var (
 	// ErrNoPrinter means no printer is available at all. It is an answer, not
 	// a malfunction: a terminal with nothing plugged in still takes payments,
@@ -29,30 +33,4 @@ var (
 	// ErrUnsupported means the requested transport does not exist on this
 	// operating system.
 	ErrUnsupported = device.ErrUnsupported
-)
-
-// Convenience aliases, so a caller doing ordinary work never needs a second
-// import. These are aliases, not distinct types: device.Device and
-// escposprinter.Device are the same type.
-type (
-	Device      = device.Device
-	Discovered  = device.Discovered
-	Status      = device.Status
-	PaperStatus = device.PaperStatus
-	Backend     = device.Backend
-	Finder      = device.Finder
-	Connection  = device.Connection
-)
-
-// Re-exported paper states.
-const (
-	PaperOK  = device.PaperOK
-	PaperLow = device.PaperLow
-	PaperOut = device.PaperOut
-)
-
-// Re-exported connection kinds.
-const (
-	ConnectionUSB     = device.ConnectionUSB
-	ConnectionNetwork = device.ConnectionNetwork
 )

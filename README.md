@@ -217,15 +217,37 @@ go run ./examples/drawer    # kick the drawer
 ## Package layout
 
 ```
-escposprinter        Registry, Printer, Options, SelectionStore, errors
-├── device/          Device, Backend, Finder, Status — the shared vocabulary (stdlib only)
-├── escpos/          byte rendering and the drawer pulse (stdlib only)
-└── transport/
-    ├── windows/     print spooler          (//go:build windows)
-    ├── cups/        lp / lpstat            (//go:build !windows)
-    ├── usb/         device nodes           (//go:build !windows)
-    └── network/     TCP 9100               (all platforms)
+escposprinter                    the public API
+├── registry.go                  state, selection, accessors
+├── registry_discovery.go        running the finders, deciding what is active
+├── printer.go                   the Printer handle
+├── options.go                   With… options
+├── options_configured.go        WithConfiguredDevice
+├── store.go   errors.go   aliases.go
+├── platform_windows.go          //go:build windows   ┐ the entire
+├── platform_unix.go             //go:build !windows  ┘ platform surface
+│
+├── device/                      the shared vocabulary        (stdlib only)
+│   device.go  backend.go  finder.go  errors.go  recognize.go
+│
+├── escpos/                      bytes and layout             (stdlib only)
+│   ├── builder.go               Builder + core control sequences
+│   ├── builder_barcode.go       GS k    — linear symbologies
+│   ├── builder_drawer.go        ESC p   — the drawer pulse
+│   ├── builder_qrcode.go        GS ( k  — QR codes
+│   ├── document.go              Element types, Row layout
+│   ├── document_profile.go      Profile, Capabilities
+│   └── document_render.go       Render (bytes), RenderText (readable)
+│
+└── transport/                   each folder: doc.go, backend.go, finder.go
+    ├── windows/                 print spooler   (+ winspool.go — Win32 bindings)
+    ├── cups/                    lp / lpstat
+    ├── usb/                     device nodes
+    └── network/                 TCP 9100        (all platforms)
 ```
+
+Filenames carry the grouping: everything under `builder_` is a command family the `Builder`
+emits, everything under `document_` is the declarative layer built on top of it.
 
 Dependencies flow one way: `root → transport/* → device/`. Import `escpos` alone if all you need is
 bytes, or a single `transport/*` package if you know exactly which printer you are talking to.
